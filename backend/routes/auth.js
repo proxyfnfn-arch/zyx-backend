@@ -3,7 +3,7 @@ const router  = express.Router();
 const jwt     = require('jsonwebtoken');
 const bcrypt  = require('bcryptjs');
 const {
-  createUser, findUserByEmail, findUserById,
+  createUser, findUserByEmail, findUserByUsername, findUserById,
   comparePassword, resetUsageIfNeeded, safeUser,
   updateUser, getPlanLimits
 } = require('../db');
@@ -34,10 +34,12 @@ router.post('/register', async (req, res) => {
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
+    const { email, password } = req.body;  // 'email' field accepts both email and username
+    if (!email || !password) return res.status(400).json({ error: 'Email/usuario y contraseña requeridos' });
 
-    const user = findUserByEmail(email);
+    // Try email first, then username
+    const isEmailFormat = email.includes('@');
+    const user = isEmailFormat ? findUserByEmail(email) : (findUserByUsername(email) || findUserByEmail(email));
     if (!user || !user.isActive) return res.status(401).json({ error: 'Credenciales incorrectas' });
 
     const ok = await comparePassword(user, password);
