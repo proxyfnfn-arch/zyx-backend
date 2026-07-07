@@ -100,6 +100,21 @@ function findUserByEmail(email) {
   return id ? users.get(id) : null;
 }
 
+function findUserByUsername(username) {
+  const id = usersByUsername.get(username.toLowerCase());
+  return id ? users.get(id) : null;
+}
+
+// Busca por email o por nombre de usuario, lo que se le pase
+function findUserByIdentifier(identifier) {
+  if (!identifier) return null;
+  const value = identifier.trim();
+  if (value.includes('@')) {
+    return findUserByEmail(value) || findUserByUsername(value);
+  }
+  return findUserByUsername(value) || findUserByEmail(value);
+}
+
 function findUserById(id) {
   return users.get(id) || null;
 }
@@ -203,7 +218,7 @@ async function initAdmin() {
 }
 
 module.exports = {
-  createUser, findUserByEmail, findUserById, findAllUsers,
+  createUser, findUserByEmail, findUserByUsername, findUserByIdentifier, findUserById, findAllUsers,
   comparePassword, resetUsageIfNeeded, safeUser, updateUser,
   getPlanLimits, canDoAction,
   createChat, getChatsByUser, getChatById, deleteChat, generateChatTitle,
