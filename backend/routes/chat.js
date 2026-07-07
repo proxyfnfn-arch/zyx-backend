@@ -20,7 +20,7 @@ const upload = multer({
 });
 
 const MODEL_CHAT   = 'openai/gpt-oss-120b';
-const MODEL_VISION = 'qwen/qwen3.6-27b';
+const MODEL_VISION = 'meta-llama/llama-4-scout-17b-16e-instruct';
 
 const SYSTEM_PROMPT = `Eres ZYX AI, un asistente de inteligencia artificial avanzado, creado por Proxy, conocido como @prooxxyfn en TikTok e Instagram.
 
