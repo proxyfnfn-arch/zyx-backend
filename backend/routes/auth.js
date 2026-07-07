@@ -3,11 +3,13 @@ const router   = express.Router();
 const jwt      = require('jsonwebtoken');
 const bcrypt   = require('bcryptjs');
 const fetch    = require('node-fetch');
+const nodemailer = require('nodemailer');
 const {
   createUser, findUserByEmail, findUserByIdentifier, findUserById,
   comparePassword, resetUsageIfNeeded, safeUser,
   updateUser, getPlanLimits,
-  findUserByGoogleId, createGoogleUser, linkGoogleAccount
+  findUserByGoogleId, createGoogleUser, linkGoogleAccount,
+  createPasswordResetToken, findPasswordResetToken, deletePasswordResetToken, setUserPassword
 } = require('../db');
 const { auth } = require('../middleware/auth');
 
@@ -18,6 +20,85 @@ const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_CALLBACK_URL  = process.env.GOOGLE_CALLBACK_URL;
 const FRONTEND_URL         = process.env.FRONTEND_URL || 'http://localhost:5500';
+
+// ── CONFIG EMAIL (recuperación de contraseña) ───
+// Usa Gmail + contraseña de aplicación (no la contraseña normal de la cuenta):
+// https://myaccount.google.com/apppasswords
+const EMAIL_USER = process.env.EMAIL_USER;
+const EMAIL_APP_PASSWORD = process.env.EMAIL_APP_PASSWORD;
+
+let mailer = null;
+if (EMAIL_USER && EMAIL_APP_PASSWORD) {
+  mailer = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: EMAIL_USER, pass: EMAIL_APP_PASSWORD }
+  });
+}
+
+// POST /api/auth/forgot-password -> envía un email con un enlace para restablecer la contraseña
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'El email es obligatorio' });
+
+    const user = findUserByEmail(email);
+
+    // Por seguridad, siempre respondemos igual exista o no el usuario (evita filtrar qué emails están registrados)
+    const genericResponse = { message: 'Si el email existe en nuestro sistema, recibirás un enlace para restablecer tu contraseña.' };
+
+    if (!user || !user.isActive) return res.json(genericResponse);
+
+    if (!mailer) {
+      console.error('EMAIL_USER / EMAIL_APP_PASSWORD no configurados: no se puede enviar el email de recuperación');
+      return res.status(500).json({ error: 'El envío de emails no está configurado en el servidor' });
+    }
+
+    const token = createPasswordResetToken(user);
+    const resetLink = `${FRONTEND_URL}/reset-password.html?token=${token}`;
+
+    await mailer.sendMail({
+      from: `"ZYX AI" <${EMAIL_USER}>`,
+      to: user.email,
+      subject: 'Recupera tu contraseña — ZYX AI',
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;background:#0e0e1a;color:#f0f0fa;border-radius:12px;">
+          <h2 style="color:#60a5fa;">Recupera tu contraseña</h2>
+          <p>Hola ${user.username},</p>
+          <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta en ZYX AI. Este enlace es válido por 1 hora:</p>
+          <p style="text-align:center;margin:28px 0;">
+            <a href="${resetLink}" style="background:#3b82f6;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;">Restablecer contraseña</a>
+          </p>
+          <p style="color:#9898b0;font-size:13px;">Si no solicitaste esto, puedes ignorar este email de forma segura.</p>
+        </div>
+      `
+    });
+
+    res.json(genericResponse);
+  } catch (e) {
+    console.error('Error en forgot-password:', e);
+    res.status(500).json({ error: 'Error al procesar la solicitud' });
+  }
+});
+
+// POST /api/auth/reset-password -> valida el token y establece la nueva contraseña
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) return res.status(400).json({ error: 'Token y nueva contraseña son obligatorios' });
+    if (newPassword.length < 6) return res.status(400).json({ error: 'Contraseña mínimo 6 caracteres' });
+
+    const data = findPasswordResetToken(token);
+    if (!data) return res.status(400).json({ error: 'El enlace es inválido o ha expirado' });
+
+    await setUserPassword(data.userId, newPassword);
+    deletePasswordResetToken(token);
+
+    res.json({ message: 'Contraseña actualizada correctamente' });
+  } catch (e) {
+    console.error('Error en reset-password:', e);
+    res.status(500).json({ error: 'Error al restablecer la contraseña' });
+  }
+});
 
 router.get('/google', (req, res) => {
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CALLBACK_URL) {
