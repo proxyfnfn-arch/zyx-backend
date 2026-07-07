@@ -197,6 +197,41 @@ function linkGoogleAccount(user, googleId, avatar) {
   return user;
 }
 
+// ── RECUPERACIÓN DE CONTRASEÑA ──────────────────
+const passwordResetTokens = new Map(); // token -> { userId, expiresAt }
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hora
+
+function createPasswordResetToken(user) {
+  // Invalida cualquier token anterior de este usuario
+  for (const [tok, data] of passwordResetTokens.entries()) {
+    if (data.userId === user.id) passwordResetTokens.delete(tok);
+  }
+  const token = crypto.randomBytes(32).toString('hex');
+  passwordResetTokens.set(token, { userId: user.id, expiresAt: Date.now() + RESET_TOKEN_TTL_MS });
+  return token;
+}
+
+function findPasswordResetToken(token) {
+  const data = passwordResetTokens.get(token);
+  if (!data) return null;
+  if (Date.now() > data.expiresAt) {
+    passwordResetTokens.delete(token);
+    return null;
+  }
+  return data;
+}
+
+function deletePasswordResetToken(token) {
+  passwordResetTokens.delete(token);
+}
+
+async function setUserPassword(userId, newPassword) {
+  const user = users.get(userId);
+  if (!user) return null;
+  user.password = await bcrypt.hash(newPassword, 12);
+  return user;
+}
+
 function findAllUsers() {
   return Array.from(users.values());
 }
@@ -302,5 +337,7 @@ module.exports = {
   createChat, getChatsByUser, getChatById, deleteChat, generateChatTitle,
   initAdmin,
   // Google OAuth
-  findUserByGoogleId, createGoogleUser, linkGoogleAccount
+  findUserByGoogleId, createGoogleUser, linkGoogleAccount,
+  // Recuperación de contraseña
+  createPasswordResetToken, findPasswordResetToken, deletePasswordResetToken, setUserPassword
 };
