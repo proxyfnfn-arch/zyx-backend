@@ -12,6 +12,7 @@ const chats = new Map();   // id -> chat object
 // Índices para búsqueda rápida
 const usersByEmail    = new Map(); // email -> id
 const usersByUsername = new Map(); // username -> id
+const usersByGoogleId = new Map(); // googleId -> id
 const chatsByUser     = new Map(); // userId -> Set of chatIds
 
 function generateId() {
@@ -74,6 +75,8 @@ async function createUser({ email, username, password, role = 'user' }) {
     email: email.toLowerCase(),
     username,
     password: hash,
+    googleId: null,
+    authProvider: 'local',
     role,
     plan: 'free',
     planExpiresAt: null,
@@ -117,6 +120,81 @@ function findUserByIdentifier(identifier) {
 
 function findUserById(id) {
   return users.get(id) || null;
+}
+
+// ── GOOGLE OAUTH FUNCTIONS ──────────────────────
+function findUserByGoogleId(googleId) {
+  const id = usersByGoogleId.get(googleId);
+  return id ? users.get(id) : null;
+}
+
+// Genera un username único a partir de un valor base (nombre o parte del email)
+function generateUniqueUsername(base) {
+  let clean = (base || 'usuario')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita acentos
+    .replace(/[^a-z0-9_]/g, '')
+    .slice(0, 20) || 'usuario';
+
+  let candidate = clean;
+  let attempts = 0;
+  while (usersByUsername.has(candidate)) {
+    attempts += 1;
+    candidate = `${clean}${Math.floor(1000 + Math.random() * 9000)}`;
+    if (attempts > 20) { candidate = `${clean}${generateId().slice(0, 6)}`; break; }
+  }
+  return candidate;
+}
+
+// Crea un usuario nuevo autenticado vía Google (sin contraseña local)
+async function createGoogleUser({ email, name, googleId, avatar }) {
+  if (usersByEmail.has(email.toLowerCase())) throw new Error('Este email ya está registrado');
+
+  const id = generateId();
+  const username = generateUniqueUsername(name || email.split('@')[0]);
+  // Contraseña aleatoria inutilizable: el usuario nunca inicia sesión con contraseña local
+  const randomPassword = crypto.randomBytes(24).toString('hex');
+  const hash = await bcrypt.hash(randomPassword, 12);
+
+  const role = email.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase() ? 'admin' : 'user';
+
+  const user = {
+    _id: id,
+    id,
+    email: email.toLowerCase(),
+    username,
+    password: hash,
+    googleId,
+    authProvider: 'google',
+    avatar: avatar || null,
+    role,
+    plan: role === 'admin' ? 'ultra' : 'free',
+    planExpiresAt: null,
+    usage: {
+      messagesThisMonth: 0,
+      imagesGeneratedThisMonth: 0,
+      imagesAnalyzedThisMonth: 0,
+      lastResetDate: new Date()
+    },
+    createdAt: new Date(),
+    lastLoginAt: new Date(),
+    isActive: true
+  };
+
+  users.set(id, user);
+  usersByEmail.set(email.toLowerCase(), id);
+  usersByUsername.set(username.toLowerCase(), id);
+  usersByGoogleId.set(googleId, id);
+  chatsByUser.set(id, new Set());
+  return user;
+}
+
+// Vincula una cuenta de Google a un usuario local ya existente (mismo email)
+function linkGoogleAccount(user, googleId, avatar) {
+  user.googleId = googleId;
+  if (!user.avatar && avatar) user.avatar = avatar;
+  usersByGoogleId.set(googleId, user.id);
+  return user;
 }
 
 function findAllUsers() {
@@ -222,5 +300,7 @@ module.exports = {
   comparePassword, resetUsageIfNeeded, safeUser, updateUser,
   getPlanLimits, canDoAction,
   createChat, getChatsByUser, getChatById, deleteChat, generateChatTitle,
-  initAdmin
+  initAdmin,
+  // Google OAuth
+  findUserByGoogleId, createGoogleUser, linkGoogleAccount
 };
