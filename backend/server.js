@@ -8,6 +8,11 @@ const { initAdmin } = require('./db');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
+// Render (y la mayoría de PaaS) están detrás de un proxy inverso que añade el
+// header X-Forwarded-For. Sin esto, express-rate-limit no puede identificar
+// correctamente las IPs de los usuarios y lanza ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
+app.set('trust proxy', 1);
+
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
