@@ -30,9 +30,26 @@ const EMAIL_APP_PASSWORD = process.env.EMAIL_APP_PASSWORD;
 let mailer = null;
 if (EMAIL_USER && EMAIL_APP_PASSWORD) {
   mailer = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: EMAIL_USER, pass: EMAIL_APP_PASSWORD }
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: { user: EMAIL_USER, pass: EMAIL_APP_PASSWORD },
+    // Timeouts para que nunca se quede "colgado" esperando la conexión SMTP
+    connectionTimeout: 10000, // 10s para conectar
+    greetingTimeout: 10000,   // 10s para el saludo del servidor
+    socketTimeout: 15000      // 15s de inactividad en el socket
   });
+}
+
+// Envuelve mailer.sendMail con un timeout manual extra de seguridad,
+// para que la petición HTTP nunca quede esperando indefinidamente.
+function sendMailWithTimeout(mailOptions, timeoutMs = 15000) {
+  return Promise.race([
+    mailer.sendMail(mailOptions),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Tiempo de espera agotado al enviar el email')), timeoutMs)
+    )
+  ]);
 }
 
 // POST /api/auth/forgot-password -> envía un email con un enlace para restablecer la contraseña
@@ -56,7 +73,7 @@ router.post('/forgot-password', async (req, res) => {
     const token = createPasswordResetToken(user);
     const resetLink = `${FRONTEND_URL}/reset-password.html?token=${token}`;
 
-    await mailer.sendMail({
+    await sendMailWithTimeout({
       from: `"ZYX AI" <${EMAIL_USER}>`,
       to: user.email,
       subject: 'Recupera tu contraseña — ZYX AI',
@@ -75,8 +92,8 @@ router.post('/forgot-password', async (req, res) => {
 
     res.json(genericResponse);
   } catch (e) {
-    console.error('Error en forgot-password:', e);
-    res.status(500).json({ error: 'Error al procesar la solicitud' });
+    console.error('Error en forgot-password:', e.message);
+    res.status(500).json({ error: 'No se pudo enviar el email. Intenta de nuevo en unos minutos.' });
   }
 });
 
