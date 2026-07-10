@@ -18,13 +18,20 @@ app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 app.use(cors({
-  origin: (origin, cb) => cb(null, true), // allow all origins
+  origin: 'https://zyxai.neocities.org', // Solo tu frontend puede llamar a la API
   credentials: true,
   methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization']
 }));
 
+// Límite general para toda la API
 app.use('/api/', rateLimit({ windowMs: 15*60*1000, max: 500, message: { error: 'Demasiadas solicitudes' } }));
+
+// Límite estricto para rutas de autenticación (previene fuerza bruta / spam de emails)
+app.use('/api/auth/login',           rateLimit({ windowMs: 15*60*1000, max: 15, message: { error: 'Demasiados intentos de inicio de sesión. Intenta más tarde.' } }));
+app.use('/api/auth/register',        rateLimit({ windowMs: 60*60*1000, max: 10, message: { error: 'Demasiados registros desde esta IP. Intenta más tarde.' } }));
+app.use('/api/auth/forgot-password', rateLimit({ windowMs: 60*60*1000, max: 5,  message: { error: 'Demasiadas solicitudes de recuperación. Intenta más tarde.' } }));
+app.use('/api/auth/reset-password',  rateLimit({ windowMs: 60*60*1000, max: 10, message: { error: 'Demasiados intentos. Intenta más tarde.' } }));
 
 app.use('/api/auth',    require('./routes/auth'));
 app.use('/api/chat',    require('./routes/chat'));
