@@ -211,11 +211,23 @@ router.get('/google/callback', async (req, res) => {
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
   try {
-    const { email, username, password } = req.body;
+    let { email, username, password } = req.body;
     if (!email || !username || !password) return res.status(400).json({ error: 'Todos los campos son obligatorios' });
-    if (password.length < 6) return res.status(400).json({ error: 'Contraseña mínimo 6 caracteres' });
 
-    const role = email.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase() ? 'admin' : 'user';
+    email = String(email).trim().toLowerCase();
+    username = String(username).trim();
+
+    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Email inválido' });
+    }
+    if (username.length < 3 || username.length > 30) {
+      return res.status(400).json({ error: 'El usuario debe tener entre 3 y 30 caracteres' });
+    }
+    if (typeof password !== 'string' || password.length < 6 || password.length > 200) {
+      return res.status(400).json({ error: 'Contraseña mínimo 6 caracteres' });
+    }
+
+    const role = email === process.env.ADMIN_EMAIL?.toLowerCase() ? 'admin' : 'user';
     const user = await createUser({ email, username, password, role });
     if (role === 'admin') user.plan = 'ultra';
 
@@ -235,8 +247,11 @@ router.post('/login', async (req, res) => {
     const identifier = req.body.identifier || req.body.email || req.body.username;
     const { password } = req.body;
     if (!identifier || !password) return res.status(400).json({ error: 'Usuario/email y contraseña requeridos' });
+    if (typeof identifier !== 'string' || identifier.length > 254 || typeof password !== 'string' || password.length > 200) {
+      return res.status(400).json({ error: 'Credenciales incorrectas' });
+    }
 
-    const user = findUserByIdentifier(identifier);
+    const user = findUserByIdentifier(identifier.trim());
     if (!user || !user.isActive) return res.status(401).json({ error: 'Credenciales incorrectas' });
 
     const ok = await comparePassword(user, password);
