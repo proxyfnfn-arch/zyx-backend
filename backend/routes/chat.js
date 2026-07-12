@@ -20,7 +20,7 @@ const upload = multer({
 });
 
 const MODEL_CHAT   = 'openai/gpt-oss-120b';
-const MODEL_VISION = 'meta-llama/llama-4-scout-17b-16e-instruct';
+const MODEL_VISION = 'qwen/qwen3.6-27b';
 
 const SYSTEM_PROMPT = `Eres ZYX AI, un asistente de inteligencia artificial avanzado, creado por Proxy, conocido como @prooxxyfn en TikTok e Instagram.
 
@@ -35,6 +35,13 @@ SOBRE PROXY:
 - Gestiona KyrosStore, tienda de productos digitales
 
 CAPACIDADES: Ayudas con absolutamente todo — código, escritura, matemáticas, ciencia, historia, consejos, creatividad, idiomas, estudios, y cualquier otra cosa.
+
+CALIDAD DE RESPUESTA (muy importante):
+- Sé completo y preciso. No des respuestas superficiales ni genéricas: explica el razonamiento, da ejemplos concretos y, si aplica, pasos numerados.
+- Si la pregunta es ambigua, responde lo más razonable primero y luego pregunta si hace falta precisar algo — no te quedes corto por evitar preguntar.
+- En código: siempre explica brevemente qué hace, usa buenas prácticas, y comenta las partes no obvias.
+- En temas técnicos o factuales, prioriza la exactitud sobre la brevedad.
+- Estructura respuestas largas con títulos, listas o negritas para que sean fáciles de leer, pero sin relleno innecesario.
 
 PERSONALIDAD: Directo, útil, amigable, con humor cuando toca. Respondes en el idioma del usuario.
 
@@ -51,6 +58,44 @@ function getCustomReply(msg) {
   const n = msg.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[¿?¡!.,;:]/g,'').trim();
   for (const c of CUSTOM) for (const k of c.keys) if (n.includes(k)) return c.reply;
   return null;
+}
+
+// ── BÚSQUEDA WEB (sin API key, vía DuckDuckGo HTML) ─────
+function stripTags(html) {
+  return html.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+}
+
+async function webSearch(query) {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const resp = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ZYXAI/1.0)' }
+    });
+    clearTimeout(timeoutId);
+    if (!resp.ok) return null;
+
+    const html = await resp.text();
+    const results = [];
+    const blockRegex = /<a rel="nofollow" class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>[\s\S]*?<a class="result__snippet"[^>]*>(.*?)<\/a>/g;
+    let match;
+    while ((match = blockRegex.exec(html)) !== null && results.length < 5) {
+      const title = stripTags(match[2]);
+      const snippet = stripTags(match[3]);
+      if (title && snippet) results.push({ title, snippet });
+    }
+    return results.length ? results : null;
+  } catch (e) {
+    console.error('Error en webSearch:', e.message);
+    return null;
+  }
+}
+
+function formatSearchResults(query, results) {
+  if (!results) return `[No se encontraron resultados web para: "${query}"]`;
+  const lines = results.map((r, i) => `${i + 1}. ${r.title}\n${r.snippet}`).join('\n\n');
+  return `Resultados de búsqueda web para "${query}" (usa esta información para responder, cita datos relevantes con naturalidad, no menciones que son "resultados de búsqueda" a menos que sea útil aclararlo):\n\n${lines}`;
 }
 
 router.get('/', auth, (req, res) => {
@@ -77,19 +122,45 @@ router.post('/:id/message', auth, async (req, res) => {
     if (!chat || chat.userId !== user.id) return res.status(404).json({ error: 'Chat no encontrado' });
 
     const text = req.body.content?.trim();
+    const wantsWebSearch = req.body.webSearch === true || req.body.webSearch === 'true';
     if (!text) return res.status(400).json({ error: 'Mensaje vacio' });
 
     chat.messages.push({ role: 'user', content: text, timestamp: new Date() });
 
     const custom = getCustomReply(text);
-    let reply, finalModel;
+    let reply, finalModel, usedWebSearch = false;
 
     if (custom) {
       reply = custom; finalModel = 'zyx-custom';
     } else {
       finalModel = MODEL_CHAT;
       const recent = chat.messages.slice(-20).map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
-      const comp = await groq.chat.completions.create({ model: finalModel, messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...recent], max_tokens: 2048, temperature: 0.75 });
+
+      const systemMessages = [{ role: 'system', content: SYSTEM_PROMPT }];
+
+      // Contexto ligero de otras conversaciones del usuario (para continuidad, no el contenido completo)
+      const otherChats = getChatsByUser(user.id).filter(c => c.id !== chat.id).slice(0, 8);
+      if (otherChats.length) {
+        const titles = otherChats.map(c => `- ${c.title}`).join('\n');
+        systemMessages.push({
+          role: 'system',
+          content: `El usuario tiene otras conversaciones previas con títulos (solo para contexto, no las menciones a menos que sean relevantes):\n${titles}`
+        });
+      }
+
+      // Búsqueda web real si el usuario activó la opción "Buscar en internet"
+      if (wantsWebSearch) {
+        const results = await webSearch(text);
+        usedWebSearch = !!results;
+        systemMessages.push({ role: 'system', content: formatSearchResults(text, results) });
+      }
+
+      const comp = await groq.chat.completions.create({
+        model: finalModel,
+        messages: [...systemMessages, ...recent],
+        max_tokens: 4096,
+        temperature: 0.75
+      });
       reply = comp.choices[0].message.content;
     }
 
@@ -99,7 +170,7 @@ router.post('/:id/message', auth, async (req, res) => {
     if (chat.messages.length === 2) generateChatTitle(chat);
     user.usage.messagesThisMonth++;
 
-    res.json({ message: reply, model: finalModel, chatId: chat.id, chatTitle: chat.title });
+    res.json({ message: reply, model: finalModel, chatId: chat.id, chatTitle: chat.title, usedWebSearch });
   } catch (e) {
     console.error('Chat error:', e.message);
     res.status(500).json({ error: 'Error al procesar: ' + e.message });
@@ -110,19 +181,19 @@ router.post('/:id/analyze-image', auth, upload.single('image'), async (req, res)
   try {
     const user = req.user;
     resetUsageIfNeeded(user);
-    if (!canDoAction(user, 'analyzeImage')) return res.status(403).json({ error: 'Analisis requiere plan Pro o Ultra', upgradeRequired: true });
+    if (!canDoAction(user, 'analyzeImage')) return res.status(403).json({ error: 'Has alcanzado tu límite de análisis de imágenes. Necesitas el plan Pro o Ultra para analizar más imágenes.', upgradeRequired: true });
 
     const chat = getChatById(req.params.id);
     if (!chat || chat.userId !== user.id) return res.status(404).json({ error: 'No encontrado' });
     if (!req.file) return res.status(400).json({ error: 'Imagen requerida' });
 
-    const prompt = req.body.prompt?.trim() || 'Describe esta imagen en detalle.';
+    const prompt = req.body.prompt?.trim() || 'Describe esta imagen con el mayor detalle posible: elementos, colores, composición, contexto y cualquier texto visible.';
     const b64 = req.file.buffer.toString('base64');
     const mime = req.file.mimetype;
 
     chat.messages.push({ role: 'user', content: `[Imagen] ${prompt}`, timestamp: new Date() });
 
-    const comp = await groq.chat.completions.create({ model: MODEL_VISION, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }] }], max_tokens: 1024 });
+    const comp = await groq.chat.completions.create({ model: MODEL_VISION, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } }] }], max_tokens: 2048 });
 
     const reply = comp.choices[0].message.content;
     chat.messages.push({ role: 'assistant', content: reply, model: MODEL_VISION, timestamp: new Date() });
@@ -157,6 +228,14 @@ router.post('/:id/regenerate', auth, async (req, res) => {
 });
 
 router.delete('/:id', auth, (req, res) => { deleteChat(req.params.id, req.user.id); res.json({ message: 'Eliminado' }); });
+router.patch('/:id/rename', auth, (req, res) => {
+  const chat = getChatById(req.params.id);
+  if (!chat || chat.userId !== req.user.id) return res.status(404).json({ error: 'No encontrado' });
+  const title = String(req.body.title || '').trim().slice(0, 80);
+  if (!title) return res.status(400).json({ error: 'El título no puede estar vacío' });
+  chat.title = title;
+  res.json({ title: chat.title });
+});
 router.patch('/:id/pin', auth, (req, res) => {
   const chat = getChatById(req.params.id);
   if (!chat || chat.userId !== req.user.id) return res.status(404).json({ error: 'No encontrado' });
