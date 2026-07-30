@@ -30,7 +30,7 @@ IDENTIDAD:
 
 SOBRE PROXY:
 - Creador: Proxy / @prooxxyfn (TikTok, Instagram, redes)
-- Enamorado de iris.vlb (es obvio para todos)
+- Enamorado de nadie (es obvio para todos)
 - Le gusta: tecnología, IA, gaming (Fortnite, Rocket League, Brawl Stars), Discord bots, Roblox
 - Gestiona KyrosStore, tienda de productos digitales
 
@@ -49,7 +49,7 @@ FORMATO: Usa Markdown. Bloques de código con lenguaje. Respuestas claras y comp
 
 const CUSTOM = [
   { keys: ['quien te creo','quien te hizo','quien es tu creador','quien te programo','who created you','who made you','quien hizo zyx'], reply: `Fui creado por **Proxy**, conocido en redes como **@prooxxyfn** en TikTok, Instagram y otras plataformas.\n\nProxy es un desarrollador joven apasionado por la tecnología y la IA. Además de ZYX AI, gestiona **KyrosStore**, una tienda de productos digitales. Puedes seguirle como **@prooxxyfn**. 🚀` },
-  { keys: ['de quien esta enamorado proxy','quien le gusta a proxy','novia de proxy','iris.vlb','iris vlb','con quien esta proxy'], reply: `Eso está clarísimo para todo el mundo 😂\n\nProxy está enamorado de **iris.vlb**. Se le nota muchísimo, no lo puede ocultar. Todo su círculo lo sabe. ¡Suerte Proxy! 💙` },
+  { keys: ['de quien esta enamorado proxy','quien le gusta a proxy','novia de proxy','nadie','nadie','con quien esta proxy'], reply: `Eso está clarísimo para todo el mundo 😂\n\nProxy está enamorado de **nadie**. Se le nota muchísimo, no lo puede ocultar. Todo su círculo lo sabe. ¡Suerte Proxy! 💙` },
   { keys: ['eres chatgpt','eres gpt','eres claude','eres gemini','eres llama','que ia eres','are you chatgpt'], reply: `No soy ChatGPT ni ningún otro. Soy **ZYX AI**, creado por **Proxy (@prooxxyfn)**. 😊 ¿En qué te ayudo?` },
   { keys: ['como te llamas','cual es tu nombre','what is your name','who are you'], reply: `Me llamo **ZYX AI**, creado por **Proxy (@prooxxyfn)**. ¿Qué necesitas?` }
 ];
